@@ -1,13 +1,24 @@
 import pandas as pd
 from typing import Callable
 import numpy as np
+from classifiers import CoTrainingClassifier
 
 def calc_disagreement(y1: pd.Series, y2: pd.Series, d: Callable[[float, float], float]) -> float:
     if len(y1) != len(y2):
-        raise ValueError("Series lengths do not match")
+        raise ValueError("Label series lengths do not match")
 
     result = d(y1, y2)
     return result.mean()
+
+def cotrain_disagreement(
+        classifier: CoTrainingClassifier,
+        X: pd.DataFrame,
+        d: Callable[[float, float], float]
+    ) -> float:
+    y1 = classifier.clf1_.predict(X[:, :X.shape[1] // 2])
+    y2 = classifier.clf2_.predict(X[:, X.shape[1] // 2:])
+
+    return calc_disagreement(y1, y2, d)
 
 def squared_difference(p1: float, p2: float) -> float:
     return (p1 - p2) ** 2
