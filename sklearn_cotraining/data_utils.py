@@ -27,6 +27,8 @@ def process_data(
         X[:, (n_features // 2 + n_informative):]
     ], axis=1)
 
+    X = np.concatenate([X1, X2], axis=1)
+
     # randomly select indices where the first or second half of features will
     # be replaced by features from random samples
     r = np.random.uniform(size=n_samples)
@@ -61,11 +63,9 @@ def process_data(
     X = np.concatenate([X1, X2], axis=1)
 
     # shuffle
-    '''
     permute = np.random.permutation(n_samples)
     X = X[permute]
     y = y[permute]
-    '''
 
     # unlabel half of the data
     y[:n_samples//2] = -1

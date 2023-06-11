@@ -99,23 +99,26 @@ if __name__ == '__main__':
         shuffle=False,
     )
 
-    probs_replace = [0.05 * i for i in range(21)]
+    X_copy = np.copy(X)
+    y_copy = np.copy(y)
+
+    probs_replace = np.linspace(0, 0.4, 15)
     progress = tqdm.tqdm(total=len(probs_replace))
     disagreements = []
     base_f1s = []
     cotrain_f1s = []
     for prob_replace in probs_replace:
-        X_new, y_new = process_data(X, y, N_SAMPLES, N_FEATURES, N_INFORMATIVE, random_state=random_state, prob_replace=prob_replace)
         (base_f1, cotrain_f1, disagreement) = report_disagreement_and_f1(
             LogisticRegression,
-            X_new,
-            y_new,
+            X,
+            y,
             N_SAMPLES,
             N_FEATURES,
             N_INFORMATIVE,
             random_state=random_state,
             prob_replace=prob_replace
         )
+        assert (X_copy == X).all() and (y_copy == y).all()
         disagreements.append(disagreement)
         base_f1s.append(base_f1)
         cotrain_f1s.append(cotrain_f1)
