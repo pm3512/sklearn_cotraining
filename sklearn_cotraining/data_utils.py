@@ -4,6 +4,8 @@ from sklearn.datasets import make_classification
 def process_data(
         X: np.ndarray,
         y: np.ndarray,
+        X_pool: np.ndarray,
+        y_pool: np.ndarray,
         n_samples: int,
         n_features: int,
         n_informative: int,
@@ -39,10 +41,10 @@ def process_data(
     replace_idx_2 = np.tile(replace_idx_2, (n_features // 2, 1)).T
 
     # randomly select samples to replace features
-    negative_idx = y == 0
-    negative_pool = X[negative_idx]
-    positive_idx = y == 1
-    positive_pool = X[positive_idx]
+    negative_idx = y_pool == 0
+    negative_pool = X_pool[negative_idx]
+    positive_idx = y_pool == 1
+    positive_pool = X_pool[positive_idx]
 
     negative_idx = np.tile(negative_idx, (n_features, 1)).T
     positive_idx = np.tile(positive_idx, (n_features, 1)).T
@@ -80,11 +82,16 @@ def generate_data(
         random_state: int | None=None
     ):
     X, y = make_classification(
-        n_samples=n_samples,
+        n_samples=n_samples * 2,
         n_features=n_features,
         random_state=random_state,
         n_informative=n_informative,
         n_redundant=n_informative,
         shuffle=False,
     )
-    return process_data(X, y, n_samples, n_features, n_informative, prob_replace, random_state)
+    X_pool = X[n_samples:]
+    y_pool = y[n_samples:]
+    X = X[:n_samples]
+    y = y[:n_samples]
+
+    return process_data(X, y, X_pool, y_pool, n_samples, n_features, n_informative, prob_replace, random_state)
