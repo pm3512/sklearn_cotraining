@@ -85,7 +85,8 @@ def report_disagreement_and_f1(
     disagreement = cotrain_disagreement(cotrain_classifier, X, squared_difference)
     return (base_f1, cotrain_f1, disagreement)
 
-if __name__ == '__main__':
+
+def main():
     N_SAMPLES = 25000
     N_FEATURES = 1000
     # number of informative and redundant features
@@ -135,3 +136,7 @@ if __name__ == '__main__':
     plt.scatter(disagreements, cotrain_f1s, label="CoTrain F1")
     plt.legend()
     plt.show()
+
+
+if __name__ == '__main__':
+    main()
