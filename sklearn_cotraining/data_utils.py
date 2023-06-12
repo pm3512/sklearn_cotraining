@@ -17,6 +17,8 @@ def process_data(
     # Rearrange features so that both classifiers have an equal number of
     # informative and redundant features. This eliminates the possibility of
     # one classifier being useless, which would lead to high disagreement
+    X = np.concatenate([X, X_pool], axis=0)
+
     X1 =  np.concatenate([
         X[:, :(n_informative // 2)],
         X[:, (n_informative):3 * (n_informative // 2)],
@@ -29,7 +31,9 @@ def process_data(
         X[:, (n_features // 2 + n_informative):]
     ], axis=1)
 
-    X = np.concatenate([X1, X2], axis=1)
+    X_pool = np.concatenate([X1[n_samples:], X2[n_samples:]], axis=1)
+    X1 = X1[:n_samples]
+    X2 = X2[:n_samples]
 
     # randomly select indices where the first or second half of features will
     # be replaced by features from random samples
