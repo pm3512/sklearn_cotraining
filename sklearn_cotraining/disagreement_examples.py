@@ -26,11 +26,11 @@ if __name__ == '__main__':
     X2 = X[:, N_FEATURES // 2:]
 
     print('num positive: ', np.sum(y == 1))
-    print ('Logistic')
+    print('Logistic')
     base_lr = LogisticRegression(max_iter=100000)
     base_lr.fit(X_labeled, y_labeled)
     y_pred = base_lr.predict(X_test)
-    print (classification_report(y_test, y_pred))
+    print(classification_report(y_test, y_pred))
 
     print ('Logistic CoTraining')
     lg_co_clf = CoTrainingClassifier(LogisticRegression(max_iter=100000))

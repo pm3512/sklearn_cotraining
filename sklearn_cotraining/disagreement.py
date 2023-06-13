@@ -5,7 +5,7 @@ import sklearn as skl
 from sklearn.linear_model import LogisticRegression
 from sklearn.datasets import make_classification
 from classifiers import CoTrainingClassifier
-from data_utils import process_data
+from data_utils import generate_data
 import tqdm
 from matplotlib import pyplot as plt
 
@@ -43,10 +43,6 @@ def kl_divergence(p1: float, p2: float) -> float:
 
 def report_disagreement_and_f1(
         classifier: Callable[[], skl.base.BaseEstimator],
-        X: np.ndarray,
-        y: np.ndarray,
-        X_pool: np.ndarray,
-        y_pool: np.ndarray,
         n_samples: int,
         n_features: int,
         n_informative: int,
@@ -60,7 +56,7 @@ def report_disagreement_and_f1(
     """
     base_classifier = classifier(max_iter=100000)
     cotrain_classifier = CoTrainingClassifier(classifier(max_iter=100000))
-    X, y = process_data(X, y, X_pool, y_pool, n_samples, n_features, n_informative, random_state=random_state, prob_replace=prob_replace)
+    X, y = generate_data(n_samples, n_features, n_informative, random_state=random_state, prob_replace=prob_replace)
 
     X_test = X[-n_samples//4:]
     y_test = y[-n_samples//4:]
@@ -90,23 +86,9 @@ if __name__ == '__main__':
     N_FEATURES = 1000
     # number of informative and redundant features
     N_INFORMATIVE = N_FEATURES // 100
-    random_state = 1
+    random_state = 2
 
-    X, y = make_classification(
-        n_samples=N_SAMPLES * 2,
-        n_features=N_FEATURES,
-        random_state=random_state,
-        n_informative=N_INFORMATIVE,
-        n_redundant=N_INFORMATIVE,
-        shuffle=False,
-    )
-
-    X_pool = X[N_SAMPLES:]
-    y_pool = y[N_SAMPLES:]
-    X = X[:N_SAMPLES]
-    y = y[:N_SAMPLES]
-
-    probs_replace = np.linspace(0, 0.4, 15)
+    probs_replace = np.linspace(0, 0.3, 30)
     progress = tqdm.tqdm(total=len(probs_replace))
     disagreements = []
     base_f1s = []
@@ -114,10 +96,6 @@ if __name__ == '__main__':
     for prob_replace in probs_replace:
         (base_f1, cotrain_f1, disagreement) = report_disagreement_and_f1(
             LogisticRegression,
-            X,
-            y,
-            X_pool,
-            y_pool,
             N_SAMPLES,
             N_FEATURES,
             N_INFORMATIVE,
