@@ -1,6 +1,14 @@
 import numpy as np
 from sklearn.datasets import make_classification
 from math import ceil
+from enum import Enum
+
+class DataGenerationType(Enum):
+    """
+        Enum for the different types of data generation
+    """
+    SKLEARN = 1
+    RECTS = 2
 
 def process_data(
         X: np.ndarray,
@@ -11,7 +19,8 @@ def process_data(
         n_features: int,
         n_informative: int,
         prob_replace: float=0,
-        random_state: int | None=None
+        random_state: int | None=None,
+        permute_cols: bool=True
     ):
     np.random.seed(random_state)
 
@@ -20,17 +29,21 @@ def process_data(
     # one classifier being useless, which would lead to high disagreement
     X = np.concatenate([X, X_pool], axis=0)
 
-    X1 =  np.concatenate([
-        X[:, :(n_informative // 2)],
-        X[:, (n_informative):3 * (n_informative // 2)],
-        X[:, (n_informative * 2):(n_features // 2 + n_informative)]
-    ], axis=1)
+    if permute_cols:
+        X1 =  np.concatenate([
+            X[:, :(n_informative // 2)],
+            X[:, (n_informative):3 * (n_informative // 2)],
+            X[:, (n_informative * 2):(n_features // 2 + n_informative)]
+        ], axis=1)
 
-    X2 =  np.concatenate([
-        X[:, (n_informative // 2):(n_informative)],
-        X[:, 3 * (n_informative // 2): (n_informative * 2)],
-        X[:, (n_features // 2 + n_informative):]
-    ], axis=1)
+        X2 =  np.concatenate([
+            X[:, (n_informative // 2):(n_informative)],
+            X[:, 3 * (n_informative // 2): (n_informative * 2)],
+            X[:, (n_features // 2 + n_informative):]
+        ], axis=1)
+    else:
+        X1 = X[:, :n_features // 2]
+        X2 = X[:, n_features // 2:]
 
     X = np.concatenate([X1, X2], axis=1)
     X_pool = X[n_samples:]
@@ -81,22 +94,43 @@ def process_data(
 
     return X, y
 
+def gen_rects(
+        n_samples: int,
+        n_features: int,
+        random_state: int | None=None,
+    ):
+    if n_features < 2:
+        raise ValueError("n_features must be at least 2")
+    np.random.seed(random_state)
+    X = np.random.uniform(size=(n_samples, n_features))
+    # xor-like labelling function
+    choose_label = lambda x: 1 if (x[0] < 0.5 and x[1] < 0.5) or (x[0] >= 0.5 and x[1] >= 0.5) else 0
+    y = np.apply_along_axis(choose_label, 1, X)
+    return X, y
+
 def generate_data(
         n_samples: int,
         n_features: int,
         n_informative: int,
         prob_replace: float=0,
-        random_state: int | None=None
+        gen_type: DataGenerationType=DataGenerationType.SKLEARN,
+        random_state: int | None=None,
+        permute_cols: bool=True
     ):
     np.random.seed(random_state)
-    X, y = make_classification(
-        n_samples=n_samples * 3,
-        n_features=n_features,
-        random_state=random_state,
-        n_informative=n_informative,
-        n_redundant=n_informative,
-        shuffle=False,
-    )
+    if gen_type == DataGenerationType.SKLEARN:
+        X, y = make_classification(
+            n_samples=n_samples * 3,
+            n_features=n_features,
+            random_state=random_state,
+            n_informative=n_informative,
+            n_redundant=n_informative,
+            shuffle=False,
+        )
+    elif gen_type == DataGenerationType.RECTS:
+        X, y = gen_rects(n_samples * 3, n_features, random_state=random_state)
+    else:
+        raise ValueError(f"Unknown data generation type {gen_type}")
     perm = np.random.permutation(n_samples * 3)
     X = X[perm]
     y = y[perm]
@@ -106,4 +140,4 @@ def generate_data(
     X = X[:n_samples]
     y = y[:n_samples]
 
-    return process_data(X, y, X_pool, y_pool, n_samples, n_features, n_informative, prob_replace, random_state)
+    return process_data(X, y, X_pool, y_pool, n_samples, n_features, n_informative, prob_replace, random_state, permute_cols)

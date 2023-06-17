@@ -27,7 +27,7 @@ class CoTrainingClassifier(object):
 		Default - 75 (from paper)
 	"""
 
-	def __init__(self, clf, clf2=None, p=-1, n=-1, k=30, u = 75):
+	def __init__(self, clf, clf2=None, p=-1, n=-1, k=40, u = 75):
 		self.clf1_ = clf
 
 		#we will just use a copy of clf (the same kind of classifier) if clf2 is not specified
@@ -124,6 +124,9 @@ class CoTrainingClassifier(object):
 				if y2_prob[i,1] > 0.5:
 					p.append(i)
 
+			p = set(p)
+			n = set(n)
+
 			#label the samples and remove thes newly added samples from U_
 			y[[U_[x] for x in p]] = 1
 			y[[U_[x] for x in n]] = 0
@@ -131,7 +134,7 @@ class CoTrainingClassifier(object):
 			L.extend([U_[x] for x in p])
 			L.extend([U_[x] for x in n])
 
-			U_ = [elem for elem in U_ if not (elem in p or elem in n)]
+			U_ = [elem for i, elem in enumerate(U_) if not (i in p or i in n)]
 
 			#add new elements to U_
 			add_counter = 0 #number we have added from U to U_
