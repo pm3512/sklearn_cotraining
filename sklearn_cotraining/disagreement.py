@@ -3,10 +3,11 @@ from typing import Callable, Tuple
 import numpy as np
 import sklearn as skl
 from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 from sklearn.datasets import make_classification
 from sklearn.base import clone
 from classifiers import CoTrainingClassifier, SeparateViewsClassifier
-from data_utils import generate_data
+from data_utils import generate_data, DataGenerationType
 import tqdm
 from matplotlib import pyplot as plt
 
@@ -47,8 +48,10 @@ def report_disagreement_and_f1(
         n_samples: int,
         n_features: int,
         n_informative: int,
+        prob_replace: float,
         random_state: int | None=None,
-        prob_replace: float=0.5
+        gen_type: DataGenerationType=DataGenerationType.SKLEARN
+
     ) -> Tuple[float, float, float]:
     """
         Takes in a type of classifier, and returns the tuple
@@ -56,10 +59,17 @@ def report_disagreement_and_f1(
         training the specified classifiers on a generated dataset
     """
     base_classifier = classifier
-    cotrain_classifier = CoTrainingClassifier(clone(classifier))
+    cotrain_classifier = CoTrainingClassifier(clone(classifier), u=1000, p=200, n=200)
     sep_views_classifier = SeparateViewsClassifier(clone(classifier))
 
-    X, y = generate_data(n_samples, n_features, n_informative, random_state=random_state, prob_replace=prob_replace)
+    X, y = generate_data(
+        n_samples,
+        n_features,
+        n_informative,
+        random_state=random_state,
+        prob_replace=prob_replace,
+        gen_type=gen_type
+    )
 
     X_test = X[-n_samples//4:]
     y_test = y[-n_samples//4:]
@@ -95,7 +105,7 @@ if __name__ == '__main__':
     N_INFORMATIVE = N_FEATURES // 100
     random_state = 2
 
-    probs_replace = np.linspace(0, 0.3, 30)
+    probs_replace = np.linspace(0., 0.3, 10)
     progress = tqdm.tqdm(total=len(probs_replace))
     disagreements = []
     base_f1s = []
@@ -103,12 +113,14 @@ if __name__ == '__main__':
     cotrain_f1s = []
     for prob_replace in probs_replace:
         (base_f1, sep_views_f1, cotrain_f1, disagreement) = report_disagreement_and_f1(
-            LogisticRegression(max_iter=1_000_000),
+            LogisticRegression(max_iter=1000, random_state=random_state),
             N_SAMPLES,
             N_FEATURES,
             N_INFORMATIVE,
             random_state=random_state,
-            prob_replace=prob_replace
+            prob_replace=prob_replace,
+            #gen_type=DataGenerationType.RECTS
+            gen_type=DataGenerationType.SKLEARN
         )
         disagreements.append(disagreement)
         base_f1s.append(base_f1)

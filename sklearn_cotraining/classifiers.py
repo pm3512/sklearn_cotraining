@@ -137,11 +137,10 @@ class CoTrainingClassifier(object):
 			U_ = [elem for i, elem in enumerate(U_) if not (i in p or i in n)]
 
 			#add new elements to U_
-			add_counter = 0 #number we have added from U to U_
 			num_to_add = len(p) + len(n)
-			while add_counter != num_to_add and U:
-				add_counter += 1
-				U_.append(U.pop())
+			num_to_add = min(num_to_add, len(U))
+			U_.extend(U[-num_to_add:])
+			U = U[:-num_to_add]
 
 
 			#TODO: Handle the case where the classifiers fail to agree on any of the samples (i.e. both n and p are empty)
