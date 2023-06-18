@@ -3,8 +3,11 @@ from typing import Callable, Tuple
 import numpy as np
 import sklearn as skl
 from sklearn.linear_model import LogisticRegression
-from classifiers import CoTrainingClassifier
-from data_utils import generate_data
+from sklearn.neural_network import MLPClassifier
+from sklearn.datasets import make_classification
+from sklearn.base import clone
+from classifiers import CoTrainingClassifier, SeparateViewsClassifier
+from data_utils import generate_data, DataGenerationType
 import tqdm
 from matplotlib import pyplot as plt
 
@@ -41,21 +44,32 @@ def kl_divergence(p1: float, p2: float) -> float:
     return kl
 
 def report_disagreement_and_f1(
-        classifier: Callable[[], skl.base.BaseEstimator],
+        classifier: skl.base.BaseEstimator,
         n_samples: int,
         n_features: int,
         n_informative: int,
+        prob_replace: float,
         random_state: int | None=None,
-        prob_replace: float=0.5
+        gen_type: DataGenerationType=DataGenerationType.SKLEARN
+
     ) -> Tuple[float, float, float]:
     """
         Takes in a type of classifier, and returns the tuple
-        (f1 without cotraining, f1 with cotraining, disagreement) obtained by
+        (f1 without cotraining, f1 with separate views, f1 with cotraining, disagreement) obtained by
         training the specified classifiers on a generated dataset
     """
-    base_classifier = classifier(max_iter=100000)
-    cotrain_classifier = CoTrainingClassifier(classifier(max_iter=100000))
-    X, y = generate_data(n_samples, n_features, n_informative, random_state=random_state, prob_replace=prob_replace)
+    base_classifier = classifier
+    cotrain_classifier = CoTrainingClassifier(clone(classifier), u=1000, p=200, n=200)
+    sep_views_classifier = SeparateViewsClassifier(clone(classifier))
+
+    X, y = generate_data(
+        n_samples,
+        n_features,
+        n_informative,
+        random_state=random_state,
+        prob_replace=prob_replace,
+        gen_type=gen_type
+    )
 
     X_test = X[-n_samples//4:]
     y_test = y[-n_samples//4:]
@@ -73,12 +87,16 @@ def report_disagreement_and_f1(
     y_pred = base_classifier.predict(X_test)
     base_f1 = skl.metrics.f1_score(y_test, y_pred)
 
+    sep_views_classifier.fit(X1, X2, y)
+    y_pred = sep_views_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
+    sep_views_f1 = skl.metrics.f1_score(y_test, y_pred)
+
     cotrain_classifier.fit(X1, X2, y)
     y_pred = cotrain_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
     cotrain_f1 = skl.metrics.f1_score(y_test, y_pred)
 
     disagreement = cotrain_disagreement(cotrain_classifier, X, squared_difference)
-    return (base_f1, cotrain_f1, disagreement)
+    return (base_f1, sep_views_f1, cotrain_f1, disagreement)
 
 
 def main():
@@ -86,30 +104,35 @@ def main():
     N_FEATURES = 1000
     # number of informative and redundant features
     N_INFORMATIVE = N_FEATURES // 100
-    random_state = 1
+    random_state = 2
 
-    probs_replace = np.linspace(0, 0.4, 15)
+    probs_replace = np.linspace(0., 0.3, 10)
     progress = tqdm.tqdm(total=len(probs_replace))
     disagreements = []
     base_f1s = []
+    sep_views_f1s = []
     cotrain_f1s = []
     for prob_replace in probs_replace:
-        (base_f1, cotrain_f1, disagreement) = report_disagreement_and_f1(
-            LogisticRegression,
+        (base_f1, sep_views_f1, cotrain_f1, disagreement) = report_disagreement_and_f1(
+            LogisticRegression(max_iter=1000, random_state=random_state),
             N_SAMPLES,
             N_FEATURES,
             N_INFORMATIVE,
             random_state=random_state,
-            prob_replace=prob_replace
+            prob_replace=prob_replace,
+            #gen_type=DataGenerationType.RECTS
+            gen_type=DataGenerationType.SKLEARN
         )
         disagreements.append(disagreement)
         base_f1s.append(base_f1)
+        sep_views_f1s.append(sep_views_f1)
         cotrain_f1s.append(cotrain_f1)
         progress.update(1)
 
     plt.xlabel("Disagreement")
     plt.ylabel("F1")
     plt.scatter(disagreements, base_f1s, label="Base F1")
+    plt.scatter(disagreements, sep_views_f1s, label="Separate Views F1")
     plt.scatter(disagreements, cotrain_f1s, label="CoTrain F1")
     plt.legend()
     plt.show()

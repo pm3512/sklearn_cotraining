@@ -1,6 +1,10 @@
 import numpy as np
 import random
 import copy
+
+from sklearn.base import BaseEstimator
+
+from utils import supports_proba
 class CoTrainingClassifier(object):
 	"""
 	Parameters:
@@ -23,7 +27,7 @@ class CoTrainingClassifier(object):
 		Default - 75 (from paper)
 	"""
 
-	def __init__(self, clf, clf2=None, p=-1, n=-1, k=30, u = 75):
+	def __init__(self, clf, clf2=None, p=-1, n=-1, k=40, u = 75):
 		self.clf1_ = clf
 
 		#we will just use a copy of clf (the same kind of classifier) if clf2 is not specified
@@ -120,6 +124,9 @@ class CoTrainingClassifier(object):
 				if y2_prob[i,1] > 0.5:
 					p.append(i)
 
+			p = set(p)
+			n = set(n)
+
 			#label the samples and remove thes newly added samples from U_
 			y[[U_[x] for x in p]] = 1
 			y[[U_[x] for x in n]] = 0
@@ -127,14 +134,13 @@ class CoTrainingClassifier(object):
 			L.extend([U_[x] for x in p])
 			L.extend([U_[x] for x in n])
 
-			U_ = [elem for elem in U_ if not (elem in p or elem in n)]
+			U_ = [elem for i, elem in enumerate(U_) if not (i in p or i in n)]
 
 			#add new elements to U_
-			add_counter = 0 #number we have added from U to U_
 			num_to_add = len(p) + len(n)
-			while add_counter != num_to_add and U:
-				add_counter += 1
-				U_.append(U.pop())
+			num_to_add = min(num_to_add, len(U))
+			U_.extend(U[-num_to_add:])
+			U = U[:-num_to_add]
 
 
 			#TODO: Handle the case where the classifiers fail to agree on any of the samples (i.e. both n and p are empty)
@@ -145,14 +151,9 @@ class CoTrainingClassifier(object):
 		self.clf2_.fit(X2[L], y[L])
 
 
-	#TODO: Move this outside of the class into a util file.
-	def supports_proba(self, clf, x):
+	def supports_proba(self, clf):
 		"""Checks if a given classifier supports the 'predict_proba' method, given a single vector x"""
-		try:
-			clf.predict_proba([x])
-			return True
-		except:
-			return False
+		return hasattr(clf, 'predict_proba')
 
 	def predict(self, X1, X2):
 		"""
@@ -174,7 +175,7 @@ class CoTrainingClassifier(object):
 		y1 = self.clf1_.predict(X1)
 		y2 = self.clf2_.predict(X2)
 
-		proba_supported = self.supports_proba(self.clf1_, X1[0]) and self.supports_proba(self.clf2_, X2[0])
+		proba_supported = supports_proba(self.clf1_) and supports_proba(self.clf2_)
 
 		#fill y_pred with -1 so we can identify the samples in which the classifiers failed to agree
 		y_pred = np.asarray([-1] * X1.shape[0])
@@ -214,3 +215,32 @@ class CoTrainingClassifier(object):
 		_epsilon = 0.0001
 		assert all(abs(sum(y_dist) - 1) <= _epsilon for y_dist in y_proba)
 		return y_proba
+
+
+class SeparateViewsClassifier(object):
+	def __init__(self, clf: BaseEstimator, clf2: BaseEstimator=None):
+		self.clf1_ = clf
+
+		#we will just use a copy of clf (the same kind of classifier) if clf2 is not specified
+		if clf2 == None:
+			self.clf2_ = copy.copy(clf)
+		else:
+			self.clf2_ = clf2
+	
+	def fit(self, X1: np.ndarray, X2: np.ndarray, y: np.ndarray):
+		y = np.asarray(y)
+		L = (y != -1)
+		self.clf1_.fit(X1[L], y[L])
+		self.clf2_.fit(X2[L], y[L])
+	
+	def predict_proba(self, X1: np.ndarray, X2: np.ndarray) -> np.ndarray:
+		if not supports_proba(self.clf1_) or not supports_proba(self.clf2_):
+			raise Exception("The classifiers don't support predict_proba")
+		probas_1 = self.clf1_.predict_proba(X1)
+		probas_2 = self.clf2_.predict_proba(X2)
+		probas = (probas_1 + probas_2) / 2
+		return probas
+	
+	def predict(self, X1, X2) -> np.ndarray:
+		probas = self.predict_proba(X1, X2)
+		return np.argmax(probas, axis=1)
