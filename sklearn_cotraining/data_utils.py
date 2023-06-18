@@ -98,14 +98,21 @@ def gen_rects(
         n_samples: int,
         n_features: int,
         random_state: int | None=None,
+        prob_replace: float=0,
     ):
     if n_features < 2:
         raise ValueError("n_features must be at least 2")
     np.random.seed(random_state)
     X = np.random.uniform(size=(n_samples, n_features))
     # xor-like labelling function
-    choose_label = lambda x: 1 if (x[0] < 0.5 and x[1] < 0.5) or (x[0] >= 0.5 and x[1] >= 0.5) else 0
-    y = np.apply_along_axis(choose_label, 1, X)
+    def choose_label(x, disagree_size):
+        if (x[0] >= 1 - disagree_size and x[1] < disagree_size):
+            return 0
+        if (x[0] < disagree_size and x[1] >= 1 - disagree_size):
+            return 1
+        return 1 if x[0] + x[1] >= 1 else 0
+    label_fn = lambda x: choose_label(x, prob_replace)
+    y = np.apply_along_axis(label_fn, 1, X)
     return X, y
 
 def generate_data(
@@ -128,7 +135,8 @@ def generate_data(
             shuffle=False,
         )
     elif gen_type == DataGenerationType.RECTS:
-        X, y = gen_rects(n_samples * 3, n_features, random_state=random_state)
+        X, y = gen_rects(n_samples * 3, n_features, random_state=random_state, prob_replace=prob_replace)
+        prob_replace = 0
     else:
         raise ValueError(f"Unknown data generation type {gen_type}")
     perm = np.random.permutation(n_samples * 3)
