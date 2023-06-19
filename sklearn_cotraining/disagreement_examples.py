@@ -19,7 +19,8 @@ if __name__ == '__main__':
         N_FEATURES,
         N_INFORMATIVE,
         random_state=1,
-        prob_replace=0.,
+        prob_replace_background=0.2,
+        prob_invert_class=0.1,
         permute_cols=True,
         gen_type=DataGenerationType.SKLEARN
     )

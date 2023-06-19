@@ -48,7 +48,8 @@ def report_disagreement_and_f1(
         n_samples: int,
         n_features: int,
         n_informative: int,
-        prob_replace: float,
+        prob_replace_background: float=0.,
+        prob_invert_class: float=0.,
         random_state: int | None=None,
         gen_type: DataGenerationType=DataGenerationType.SKLEARN
 
@@ -67,7 +68,8 @@ def report_disagreement_and_f1(
         n_features,
         n_informative,
         random_state=random_state,
-        prob_replace=prob_replace,
+        prob_replace_background=prob_replace_background,
+        prob_invert_class=prob_invert_class,
         gen_type=gen_type
     )
 
@@ -106,7 +108,7 @@ def main():
     N_INFORMATIVE = N_FEATURES // 100
     random_state = 1234
 
-    probs_replace = np.linspace(0., 0.3, 30)
+    probs_replace = np.linspace(0., 0.3, 10)
     progress = tqdm.tqdm(total=len(probs_replace))
     disagreements = []
     base_f1s = []
@@ -119,7 +121,8 @@ def main():
             N_FEATURES,
             N_INFORMATIVE,
             random_state=random_state,
-            prob_replace=prob_replace,
+            #prob_replace_background=prob_replace,
+            prob_invert_class=prob_replace,
             #gen_type=DataGenerationType.RECTS
             gen_type=DataGenerationType.SKLEARN
         )
