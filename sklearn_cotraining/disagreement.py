@@ -4,9 +4,8 @@ import numpy as np
 import sklearn as skl
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
-from sklearn.datasets import make_classification
 from sklearn.base import clone
-from classifiers import CoTrainingClassifier, SeparateViewsClassifier
+from classifiers import CoTrainingClassifier, SeparateViewsClassifier, VotingCoTraining
 from data_utils import generate_data, DataGenerationType
 import tqdm
 from matplotlib import pyplot as plt
@@ -62,6 +61,7 @@ def report_disagreement_and_f1(
     base_classifier = classifier
     cotrain_classifier = CoTrainingClassifier(clone(classifier), u=1600, p=300, n=300)
     sep_views_classifier = SeparateViewsClassifier(clone(classifier))
+    voting_classifier = VotingCoTraining(clone(classifier), u=1600, p=300, n=300)
 
     X, y = generate_data(
         n_samples,
@@ -97,8 +97,12 @@ def report_disagreement_and_f1(
     y_pred = cotrain_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
     cotrain_f1 = skl.metrics.f1_score(y_test, y_pred)
 
+    voting_classifier.fit(X1, X2, y)
+    y_pred = voting_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
+    voting_f1 = skl.metrics.f1_score(y_test, y_pred)
+
     disagreement = cotrain_disagreement(cotrain_classifier, X, squared_difference)
-    return (base_f1, sep_views_f1, cotrain_f1, disagreement)
+    return (base_f1, sep_views_f1, cotrain_f1, voting_f1, disagreement)
 
 
 def main():
@@ -106,16 +110,18 @@ def main():
     N_FEATURES = 1000
     # number of informative and redundant features
     N_INFORMATIVE = N_FEATURES // 100
-    random_state = 1234
+    random_state = 2
 
-    probs_replace = np.linspace(0., 0.3, 10)
+    #probs_replace = np.linspace(0., 0.7, 30)
+    probs_replace = np.linspace(0., 0.3, 30)
     progress = tqdm.tqdm(total=len(probs_replace))
     disagreements = []
     base_f1s = []
     sep_views_f1s = []
     cotrain_f1s = []
+    voting_f1s = []
     for prob_replace in probs_replace:
-        (base_f1, sep_views_f1, cotrain_f1, disagreement) = report_disagreement_and_f1(
+        (base_f1, sep_views_f1, cotrain_f1, voting_f1, disagreement) = report_disagreement_and_f1(
             LogisticRegression(max_iter=1000, random_state=random_state),
             N_SAMPLES,
             N_FEATURES,
@@ -130,13 +136,16 @@ def main():
         base_f1s.append(base_f1)
         sep_views_f1s.append(sep_views_f1)
         cotrain_f1s.append(cotrain_f1)
+        voting_f1s.append(voting_f1)
         progress.update(1)
 
     plt.xlabel("Disagreement")
     plt.ylabel("F1")
+    disagreements = np.linspace(0., 0.5, 30)
     plt.scatter(disagreements, base_f1s, label="Base F1")
     plt.scatter(disagreements, sep_views_f1s, label="Separate Views F1")
     plt.scatter(disagreements, cotrain_f1s, label="CoTrain F1")
+    plt.scatter(disagreements, voting_f1s, label="Voting F1")
     plt.legend()
     plt.show()
 
