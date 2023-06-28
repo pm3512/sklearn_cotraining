@@ -5,7 +5,7 @@ import sklearn as skl
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.base import clone
-from classifiers import CoTrainingClassifier, SeparateViewsClassifier, VotingCoTraining
+from classifiers import CoTrainingClassifier, SeparateViewsClassifier
 from data_utils import generate_data, DataGenerationType
 import tqdm
 from matplotlib import pyplot as plt
@@ -61,7 +61,7 @@ def report_disagreement_and_f1(
     base_classifier = classifier
     cotrain_classifier = CoTrainingClassifier(clone(classifier), u=1600, p=300, n=300)
     sep_views_classifier = SeparateViewsClassifier(clone(classifier))
-    voting_classifier = VotingCoTraining(clone(classifier), u=1600, p=300, n=300)
+    # voting_classifier = VotingCoTraining(clone(classifier), u=1600, p=300, n=300)
 
     X, y = generate_data(
         n_samples,

@@ -27,7 +27,7 @@ class CoTrainingClassifier(object):
 		Default - 75 (from paper)
 	"""
 
-	def __init__(self, clf, clf2=None, p=-1, n=-1, k=40, u = 75):
+	def __init__(self, clf, clf2=None, p=-1, n=-1, k=40, u=75, num_classes=2):
 		self.clf1_ = clf
 
 		#we will just use a copy of clf (the same kind of classifier) if clf2 is not specified
@@ -44,6 +44,7 @@ class CoTrainingClassifier(object):
 		self.n_ = n
 		self.k_ = k
 		self.u_ = u
+		self.num_classes_ = num_classes
 
 		random.seed()
 
@@ -110,40 +111,61 @@ class CoTrainingClassifier(object):
 
 			n, p = [], []
 
-			for i in (y1_prob[:,0].argsort())[-self.n_:]:
-				if y1_prob[i,0] > 0.5:
-					n.append(i)
-			for i in (y1_prob[:,1].argsort())[-self.p_:]:
-				if y1_prob[i,1] > 0.5:
-					p.append(i)
+			if self.num_classes_ == 2:
+				for i in (y1_prob[:,0].argsort())[-self.n_:]:
+					if y1_prob[i,0] > 0.5:
+						n.append(i)
+				for i in (y1_prob[:,1].argsort())[-self.p_:]:
+					if y1_prob[i,1] > 0.5:
+						p.append(i)
 
-			for i in (y2_prob[:,0].argsort())[-self.n_:]:
-				if y2_prob[i,0] > 0.5:
-					n.append(i)
-			for i in (y2_prob[:,1].argsort())[-self.p_:]:
-				if y2_prob[i,1] > 0.5:
-					p.append(i)
+				for i in (y2_prob[:,0].argsort())[-self.n_:]:
+					if y2_prob[i,0] > 0.5:
+						n.append(i)
+				for i in (y2_prob[:,1].argsort())[-self.p_:]:
+					if y2_prob[i,1] > 0.5:
+						p.append(i)
+				p = set(p)
+				n = set(n)
 
-			p = set(p)
-			n = set(n)
+				#label the samples and remove thes newly added samples from U_
+				y[[U_[x] for x in p]] = 1
+				y[[U_[x] for x in n]] = 0
 
-			#label the samples and remove thes newly added samples from U_
-			y[[U_[x] for x in p]] = 1
-			y[[U_[x] for x in n]] = 0
+				L.extend([U_[x] for x in p])
+				L.extend([U_[x] for x in n])
 
-			L.extend([U_[x] for x in p])
-			L.extend([U_[x] for x in n])
+				U_ = [elem for i, elem in enumerate(U_) if not (i in p or i in n)]
 
-			U_ = [elem for i, elem in enumerate(U_) if not (i in p or i in n)]
+				#add new elements to U_
+				num_to_add = len(p) + len(n)
+				num_to_add = min(num_to_add, len(U))
+				U_.extend(U[-num_to_add:])
+				U = U[:-num_to_add]
 
-			#add new elements to U_
-			num_to_add = len(p) + len(n)
-			num_to_add = min(num_to_add, len(U))
-			U_.extend(U[-num_to_add:])
-			U = U[:-num_to_add]
+			else:
+				new_labels = {}
+				for i in range(self.num_classes_):
+					new_labels[i] = set()
+					for j in (y1_prob[:,i].argsort())[-self.n_:]:
+						if y1_prob[j,i] > 0.5:
+							new_labels[i].add(j)
+					for j in (y2_prob[:,i].argsort())[-self.p_:]:
+						if y2_prob[j,i] > 0.5:
+							new_labels[i].add(j)
+				
+				for i in range(self.num_classes_):
+					y[[U_[x] for x in new_labels[i]]] = i
+					L.extend([U_[x] for x in new_labels[i]])
+				new_labels_all = set()
+				for i in range(self.num_classes_):
+					new_labels_all.update(new_labels[i])
+				U_ = [elem for j, elem in enumerate(U_) if not (j in new_labels_all)]				
 
-
-			#TODO: Handle the case where the classifiers fail to agree on any of the samples (i.e. both n and p are empty)
+				num_to_add = sum(len(new_labels_class) for new_labels_class in new_labels.values())
+				num_to_add = min(num_to_add, len(U))
+				U_.extend(U[-num_to_add:])
+				U = U[:-num_to_add]
 
 
 		#let's fit our final model
@@ -184,11 +206,11 @@ class CoTrainingClassifier(object):
 			if y1_i == y2_i:
 				y_pred[i] = y1_i
 			elif proba_supported:
-				y1_probs = self.clf1_.predict_proba([X1[i]])[0]
-				y2_probs = self.clf2_.predict_proba([X2[i]])[0]
-				sum_y_probs = [prob1 + prob2 for (prob1, prob2) in zip(y1_probs, y2_probs)]
-				max_sum_prob = max(sum_y_probs)
-				y_pred[i] = sum_y_probs.index(max_sum_prob)
+				y1_probs = np.array(self.clf1_.predict_proba([X1[i]])[0])
+				y2_probs = np.array(self.clf2_.predict_proba([X2[i]])[0])
+				sum_probs = y1_probs + y2_probs
+				pred = sum_probs.argmax()
+				y_pred[i] = pred
 
 			else:
 				#the classifiers disagree and don't support probability, so we guess
@@ -199,23 +221,6 @@ class CoTrainingClassifier(object):
 		assert not (-1 in y_pred)
 
 		return y_pred
-
-
-	def predict_proba(self, X1, X2):
-		"""Predict the probability of the samples belonging to each class."""
-		y_proba = np.full((X1.shape[0], 2), -1, np.float)
-
-		y1_proba = self.clf1_.predict_proba(X1)
-		y2_proba = self.clf2_.predict_proba(X2)
-
-		for i, (y1_i_dist, y2_i_dist) in enumerate(zip(y1_proba, y2_proba)):
-			y_proba[i][0] = (y1_i_dist[0] + y2_i_dist[0]) / 2
-			y_proba[i][1] = (y1_i_dist[1] + y2_i_dist[1]) / 2
-
-		_epsilon = 0.0001
-		assert all(abs(sum(y_dist) - 1) <= _epsilon for y_dist in y_proba)
-		return y_proba
-
 
 class SeparateViewsClassifier(object):
 	def __init__(self, clf: BaseEstimator, clf2: BaseEstimator=None):
@@ -244,115 +249,3 @@ class SeparateViewsClassifier(object):
 	def predict(self, X1, X2) -> np.ndarray:
 		probas = self.predict_proba(X1, X2)
 		return np.argmax(probas, axis=1)
-
-
-class VotingCoTraining(CoTrainingClassifier):
-	def __init__(self, clf, clf2=None, p=-1, n=-1, k=40, u=75):
-		super().__init__(clf, clf2, p, n, k, u)
-		self.joint_clf_ = copy.copy(clf)
-	
-	def fit(self, X1, X2, y):
-		"""
-		Description:
-		fits the classifiers on the partially labeled data, y.
-
-		Parameters:
-		X1 - array-like (n_samples, n_features_1): first set of features for samples
-		X2 - array-like (n_samples, n_features_2): second set of features for samples
-		y - array-like (n_samples): labels for samples, -1 indicates unlabeled
-
-		"""
-
-		#we need y to be a numpy array so we can do more complex slicing
-		y = np.asarray(y)
-
-		#set the n and p parameters if we need to
-		if self.p_ == -1 and self.n_ == -1:
-			num_pos = sum(1 for y_i in y if y_i == 1)
-			num_neg = sum(1 for y_i in y if y_i == 0)
-
-			n_p_ratio = num_neg / float(num_pos)
-
-			if n_p_ratio > 1:
-				self.p_ = 1
-				self.n_ = round(self.p_*n_p_ratio)
-
-			else:
-				self.n_ = 1
-				self.p_ = round(self.n_/n_p_ratio)
-
-		assert(self.p_ > 0 and self.n_ > 0 and self.k_ > 0 and self.u_ > 0)
-
-		#the set of unlabeled samples
-		U = [i for i, y_i in enumerate(y) if y_i == -1]
-
-		#we randomize here, and then just take from the back so we don't have to sample every time
-		random.shuffle(U)
-
-		#this is U' in paper
-		U_ = U[-min(len(U), self.u_):]
-
-		#the samples that are initially labeled
-		L = [i for i, y_i in enumerate(y) if y_i != -1]
-
-		#remove the samples in U_ from U
-		U = U[:-len(U_)]
-
-		X = np.concatenate((X1, X2), axis=1)
-		self.joint_clf_.fit(X[L], y[L])
-
-
-		it = 0 #number of cotraining iterations we've done so far
-
-		#loop until we have assigned labels to everything in U or we hit our iteration break condition
-		while it != self.k_ and U:
-			it += 1
-
-			self.clf1_.fit(X1[L], y[L])
-			self.clf2_.fit(X2[L], y[L])
-
-			y1_prob = self.clf1_.predict_proba(X1[U_])
-			y2_prob = self.clf2_.predict_proba(X2[U_])
-			joint_prob = self.joint_clf_.predict_proba(X[U_])
-
-			n, p = [], []
-
-			for i in (y1_prob[:,0].argsort())[-self.n_:]:
-				if (y1_prob[i,0] + joint_prob[i,0] + y2_prob[i,0]) / 3 > 0.5:
-					n.append(i)
-			for i in (y1_prob[:,1].argsort())[-self.p_:]:
-				if (y1_prob[i,1] + joint_prob[i,1] + y2_prob[i,1]) / 3 > 0.5:
-					p.append(i)
-
-			for i in (y2_prob[:,0].argsort())[-self.n_:]:
-				if (y1_prob[i,0] + joint_prob[i,0] + y2_prob[i,0]) / 3 > 0.5:
-					n.append(i)
-			for i in (y2_prob[:,1].argsort())[-self.p_:]:
-				if (y1_prob[i,1] + joint_prob[i,1] + y2_prob[i,1]) / 3 > 0.5:
-					p.append(i)
-
-			p = set(p)
-			n = set(n)
-
-			#label the samples and remove thes newly added samples from U_
-			y[[U_[x] for x in p]] = 1
-			y[[U_[x] for x in n]] = 0
-
-			L.extend([U_[x] for x in p])
-			L.extend([U_[x] for x in n])
-
-			U_ = [elem for i, elem in enumerate(U_) if not (i in p or i in n)]
-
-			#add new elements to U_
-			num_to_add = len(p) + len(n)
-			num_to_add = min(num_to_add, len(U))
-			U_.extend(U[-num_to_add:])
-			U = U[:-num_to_add]
-
-
-			#TODO: Handle the case where the classifiers fail to agree on any of the samples (i.e. both n and p are empty)
-
-
-		#let's fit our final model
-		self.clf1_.fit(X1[L], y[L])
-		self.clf2_.fit(X2[L], y[L])

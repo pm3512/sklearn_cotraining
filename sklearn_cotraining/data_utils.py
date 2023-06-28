@@ -1,3 +1,5 @@
+from typing import Callable
+from matplotlib import pyplot as plt
 import numpy as np
 from sklearn.datasets import make_classification
 from math import ceil
@@ -9,6 +11,23 @@ class DataGenerationType(Enum):
     """
     SKLEARN = 1
     RECTS = 2
+
+def rearrange_cols(X: np.ndarray, n_informative: int):
+    n_features = X.shape[1]
+    X1 =  np.concatenate([
+        X[:, :(n_informative // 2)],
+        X[:, (n_informative):3 * (n_informative // 2)],
+        X[:, (n_informative * 2):(n_features // 2 + n_informative)]
+    ], axis=1)
+
+    X2 =  np.concatenate([
+        X[:, (n_informative // 2):(n_informative)],
+        X[:, 3 * (n_informative // 2): (n_informative * 2)],
+        X[:, (n_features // 2 + n_informative):]
+    ], axis=1)
+
+    return (X1, X2)
+
 
 def process_data(
         X: np.ndarray,
@@ -34,17 +53,7 @@ def process_data(
     X = np.concatenate([X, X_pool], axis=0)
 
     if permute_cols:
-        X1 =  np.concatenate([
-            X[:, :(n_informative // 2)],
-            X[:, (n_informative):3 * (n_informative // 2)],
-            X[:, (n_informative * 2):(n_features // 2 + n_informative)]
-        ], axis=1)
-
-        X2 =  np.concatenate([
-            X[:, (n_informative // 2):(n_informative)],
-            X[:, 3 * (n_informative // 2): (n_informative * 2)],
-            X[:, (n_features // 2 + n_informative):]
-        ], axis=1)
+        X1, X2 = rearrange_cols(X, n_informative)
     else:
         X1 = X[:, :n_features // 2]
         X2 = X[:, n_features // 2:]
@@ -154,11 +163,11 @@ def generate_data(
             shuffle=False,
         )
     elif gen_type == DataGenerationType.RECTS:
-        X, y = gen_rects(n_samples * 3, n_features, random_state=random_state, prob_replace=prob_replace)
+        X, y = gen_rects(n_samples * 5, n_features, random_state=random_state, prob_replace=prob_replace)
         prob_replace = 0
     else:
         raise ValueError(f"Unknown data generation type {gen_type}")
-    perm = np.random.permutation(n_samples * 3)
+    perm = np.random.permutation(n_samples * 5)
     X = X[perm]
     y = y[perm]
 
@@ -186,3 +195,106 @@ def generate_data(
         random_state,
         permute_cols
     )
+
+def generate_from_probmatrix(
+    mat: np.ndarray,
+    n_samples: int,
+    n_features: int,
+    n_informative: int,
+    random_state: int | None=None,
+):
+    n_classes = mat.shape[0]
+    if len(mat.shape) < 3 or mat.shape[1] != n_classes or mat.shape[2] != n_classes:
+        raise ValueError("Invalid tensor shape")
+    eps = 0.0001
+    if abs(mat.sum() - 1) > eps or (mat < 0).any():
+        raise ValueError("Not a valid probability tensor")
+
+    np.random.seed(random_state)
+    X, y = make_classification(
+        n_samples=n_samples * n_classes,
+        n_classes=n_classes,
+        n_features=n_features,
+        random_state=random_state,
+        n_informative=n_informative,
+        n_redundant=n_informative * 2,
+        shuffle=False,
+    )
+    X1, X2 = rearrange_cols(X, n_informative)
+    perm = np.random.permutation(n_samples * n_classes)
+    X1 = X1[perm]
+    X2 = X2[perm]
+    y = y[perm]
+
+    pools = []
+    for i in range(n_classes):
+        X1_pool = X1[y == i]
+        X2_pool = X2[y == i]
+        # extend to n_samples
+        X1_pool = X1_pool.repeat(ceil(n_samples / X1_pool.shape[0]), axis=0)[:n_samples]
+        X2_pool = X2_pool.repeat(ceil(n_samples / X2_pool.shape[0]), axis=0)[:n_samples]
+
+        pools.append((X1_pool, X2_pool))
+    used_pools = [[0, 0] for _ in range(n_classes)]
+
+    X = []
+    y = []
+    mat_flat = mat.flatten()
+    choice_indices = [i for i in range(len(mat_flat))]
+    for i in range(n_samples):
+        # choose a class
+        class_idx = np.random.choice(choice_indices, p=mat_flat)
+        class_idx = np.unravel_index(class_idx, mat.shape)
+        assert len(class_idx) == 3
+        X1_class, X2_class, y_class = class_idx
+        X1_selected = pools[X1_class][0][used_pools[X1_class][0]]
+        X2_selected = pools[X2_class][1][used_pools[X2_class][1]]
+        y_selected = y_class
+
+        used_pools[X1_class][0] += 1
+        used_pools[X2_class][1] += 1
+
+        X.append(np.concatenate((X1_selected, X2_selected)))
+        y.append(y_selected)
+    X = np.array(X)
+    y = np.array(y)
+
+    y[:n_samples//2] = -1
+    return X, y
+
+def fn_to_mat(f: Callable[[int, int, int], float], n_classes: int):
+    mat = np.zeros((n_classes, n_classes, n_classes))
+    for i in range(n_classes):
+        for j in range(n_classes):
+            for k in range(n_classes):
+                mat[i, j, k] = f(i, j, k)
+    mat /= mat.sum()
+    return mat
+
+def identity_fn(i: int, j: int, k: int):
+    return 1 if i == j == k else 0
+
+
+if __name__ == '__main__':
+    X, y = generate_from_probmatrix(
+        fn_to_mat(identity_fn, 2),
+        100,
+        10,
+        2,
+        12344,
+    )
+    X = X[y != -1]
+    y = y[y != -1]
+    plt.scatter(X[:, 0], X[:, 5], c=y)
+    plt.show()
+
+    X, y = generate_data(
+        100,
+        10,
+        2,
+        random_state=12344
+    )
+    X = X[y != -1]
+    y = y[y != -1]
+    plt.scatter(X[:, 0], X[:, 5], c=y)
+    plt.show()
