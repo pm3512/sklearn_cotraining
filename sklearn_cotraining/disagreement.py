@@ -1,3 +1,4 @@
+import functools
 import pandas as pd
 from typing import Callable, Tuple
 import numpy as np
@@ -6,7 +7,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.base import clone
 from classifiers import CoTrainingClassifier, SeparateViewsClassifier
-from data_utils import generate_data, DataGenerationType
+from data_utils import fn_to_mat, generate_data, DataGenerationType, generate_from_probmatrix, set_prob_replace_fn
 import tqdm
 from matplotlib import pyplot as plt
 
@@ -47,10 +48,9 @@ def report_disagreement_and_f1(
         n_samples: int,
         n_features: int,
         n_informative: int,
-        prob_replace_background: float=0.,
-        prob_invert_class: float=0.,
+        n_classes: int,
+        f: Callable[[int, int, int, int], float],
         random_state: int | None=None,
-        gen_type: DataGenerationType=DataGenerationType.SKLEARN
 
     ) -> Tuple[float, float, float]:
     """
@@ -63,6 +63,14 @@ def report_disagreement_and_f1(
     sep_views_classifier = SeparateViewsClassifier(clone(classifier))
     # voting_classifier = VotingCoTraining(clone(classifier), u=1600, p=300, n=300)
 
+    X, y = generate_from_probmatrix(
+        fn_to_mat(f, n_classes),
+        n_samples,
+        n_features,
+        n_informative,
+        random_state=random_state,
+    )
+    '''
     X, y = generate_data(
         n_samples,
         n_features,
@@ -72,6 +80,7 @@ def report_disagreement_and_f1(
         prob_invert_class=prob_invert_class,
         gen_type=gen_type
     )
+    '''
 
     X_test = X[-n_samples//4:]
     y_test = y[-n_samples//4:]
@@ -97,12 +106,8 @@ def report_disagreement_and_f1(
     y_pred = cotrain_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
     cotrain_f1 = skl.metrics.f1_score(y_test, y_pred)
 
-    voting_classifier.fit(X1, X2, y)
-    y_pred = voting_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
-    voting_f1 = skl.metrics.f1_score(y_test, y_pred)
-
     disagreement = cotrain_disagreement(cotrain_classifier, X, squared_difference)
-    return (base_f1, sep_views_f1, cotrain_f1, voting_f1, disagreement)
+    return (base_f1, sep_views_f1, cotrain_f1, disagreement)
 
 
 def main():
@@ -110,42 +115,43 @@ def main():
     N_FEATURES = 1000
     # number of informative and redundant features
     N_INFORMATIVE = N_FEATURES // 100
-    random_state = 2
+    NUM_RANDOM_STATES = 3
+    random_states = [i for i in range(3)]
 
     #probs_replace = np.linspace(0., 0.7, 30)
-    probs_replace = np.linspace(0., 0.3, 30)
-    progress = tqdm.tqdm(total=len(probs_replace))
+    probs_replace = np.linspace(0.99, 0.999, 1)
+    progress = tqdm.tqdm(total=len(probs_replace) * NUM_RANDOM_STATES)
     disagreements = []
     base_f1s = []
     sep_views_f1s = []
     cotrain_f1s = []
-    voting_f1s = []
     for prob_replace in probs_replace:
-        (base_f1, sep_views_f1, cotrain_f1, voting_f1, disagreement) = report_disagreement_and_f1(
-            LogisticRegression(max_iter=1000, random_state=random_state),
-            N_SAMPLES,
-            N_FEATURES,
-            N_INFORMATIVE,
-            random_state=random_state,
-            #prob_replace_background=prob_replace,
-            prob_invert_class=prob_replace,
-            #gen_type=DataGenerationType.RECTS
-            gen_type=DataGenerationType.SKLEARN
-        )
-        disagreements.append(disagreement)
-        base_f1s.append(base_f1)
-        sep_views_f1s.append(sep_views_f1)
-        cotrain_f1s.append(cotrain_f1)
-        voting_f1s.append(voting_f1)
-        progress.update(1)
+        disagreements.append(0)
+        base_f1s.append(0)
+        sep_views_f1s.append(0)
+        cotrain_f1s.append(0)
+        for random_state in random_states:
+            (base_f1, sep_views_f1, cotrain_f1, disagreement) = report_disagreement_and_f1(
+                LogisticRegression(max_iter=1000, random_state=random_state),
+                N_SAMPLES,
+                N_FEATURES,
+                N_INFORMATIVE,
+                n_classes=2,
+                f=functools.partial(set_prob_replace_fn, non_diagonal_ratio=prob_replace),
+                random_state=random_state,
+            )
+            disagreements[-1] += disagreement / NUM_RANDOM_STATES
+            base_f1s[-1] += base_f1 / NUM_RANDOM_STATES
+            sep_views_f1s[-1] += sep_views_f1 / NUM_RANDOM_STATES
+            cotrain_f1s[-1] += cotrain_f1 / NUM_RANDOM_STATES
+            progress.update(1)
 
     plt.xlabel("Disagreement")
     plt.ylabel("F1")
-    disagreements = np.linspace(0., 0.5, 30)
+    disagreements =probs_replace
     plt.scatter(disagreements, base_f1s, label="Base F1")
     plt.scatter(disagreements, sep_views_f1s, label="Separate Views F1")
     plt.scatter(disagreements, cotrain_f1s, label="CoTrain F1")
-    plt.scatter(disagreements, voting_f1s, label="Voting F1")
     plt.legend()
     plt.show()
 

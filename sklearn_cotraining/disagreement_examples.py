@@ -15,6 +15,7 @@ if __name__ == '__main__':
     # number of informative and redundant features
     num_classes = 2
     N_INFORMATIVE = N_FEATURES // 100
+
     X, y = generate_from_probmatrix(
         fn_to_mat(identity_fn, num_classes),
         N_SAMPLES,
@@ -24,12 +25,14 @@ if __name__ == '__main__':
     )
 
     
+    '''
     X, y = generate_data(
         N_SAMPLES,
         N_FEATURES,
         N_INFORMATIVE,
-        random_state=1234,
+        random_state=12,
     )
+    '''
 
     X_test = X[-N_SAMPLES//4:]
     y_test = y[-N_SAMPLES//4:]
