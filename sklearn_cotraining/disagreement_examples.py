@@ -1,10 +1,11 @@
+import functools
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report
-from classifiers import CoTrainingClassifier, SeparateViewsClassifier
+from classifiers import CoTrainingClassifier, DistributionAwarePred, SeparateViewsClassifier
 from disagreement import cotrain_disagreement, kl_divergence, squared_difference
-from data_utils import DataGenerationType, generate_data, generate_from_probmatrix, fn_to_mat, identity_fn
+from data_utils import DataGenerationType, dom_class, generate_data, generate_from_probmatrix, fn_to_mat, identity_fn
 import numpy as np
 from matplotlib import pyplot as plt
 
@@ -15,9 +16,10 @@ if __name__ == '__main__':
     # number of informative and redundant features
     num_classes = 2
     N_INFORMATIVE = N_FEATURES // 100
+    generator_tensor = fn_to_mat(functools.partial(dom_class, p_100=0.05), num_classes)
 
     X, y = generate_from_probmatrix(
-        fn_to_mat(identity_fn, num_classes),
+        generator_tensor,
         N_SAMPLES,
         N_FEATURES,
         N_INFORMATIVE,
@@ -68,3 +70,10 @@ if __name__ == '__main__':
     y_pred = lg_co_clf.predict(X_test[:, :N_FEATURES // 2], X_test[:, N_FEATURES // 2:])
     print (classification_report(y_test, y_pred))
     print('Disagreement: ', cotrain_disagreement(lg_co_clf, X, squared_difference))
+
+    print ('Logistic distribution aware prediction')
+    dist_aware = DistributionAwarePred(prob_tensor=generator_tensor, clf=LogisticRegression(max_iter=1000), clf2=None, u=1000, p=200, n=200, k=40, num_classes=num_classes)
+    dist_aware.fit(X1, X2, y)
+    y_pred = dist_aware.predict(X_test[:, :N_FEATURES // 2], X_test[:, N_FEATURES // 2:])
+    print (classification_report(y_test, y_pred))
+    print('Disagreement: ', cotrain_disagreement(dist_aware, X, squared_difference))

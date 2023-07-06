@@ -3,11 +3,12 @@ import pandas as pd
 from typing import Callable, Tuple
 import numpy as np
 import sklearn as skl
+from sklearn.metrics import precision_recall_fscore_support as score
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.base import clone
-from classifiers import CoTrainingClassifier, SeparateViewsClassifier
-from data_utils import fn_to_mat, generate_data, DataGenerationType, generate_from_probmatrix, set_prob_replace_fn
+from classifiers import CoTrainingClassifier, DistributionAwarePred, SeparateViewsClassifier
+from data_utils import dom_class, fn_to_mat, generate_data, DataGenerationType, generate_from_probmatrix, set_prob_replace_fn, third_class_on_dis
 import tqdm
 from matplotlib import pyplot as plt
 
@@ -58,13 +59,14 @@ def report_disagreement_and_f1(
         (f1 without cotraining, f1 with separate views, f1 with cotraining, disagreement) obtained by
         training the specified classifiers on a generated dataset
     """
+    prob_tensor = fn_to_mat(f, n_classes)
     base_classifier = classifier
     cotrain_classifier = CoTrainingClassifier(clone(classifier), u=1600, p=300, n=300)
     sep_views_classifier = SeparateViewsClassifier(clone(classifier))
-    # voting_classifier = VotingCoTraining(clone(classifier), u=1600, p=300, n=300)
+    dist_aware_pred = DistributionAwarePred(prob_tensor, clone(classifier), None, p=300, n=300, u=1600, k=40, num_classes=n_classes)
 
     X, y = generate_from_probmatrix(
-        fn_to_mat(f, n_classes),
+        prob_tensor,
         n_samples,
         n_features,
         n_informative,
@@ -96,18 +98,26 @@ def report_disagreement_and_f1(
 
     base_classifier.fit(X_labeled, y_labeled)
     y_pred = base_classifier.predict(X_test)
-    base_f1 = skl.metrics.f1_score(y_test, y_pred)
+    base_f1 = score(y_test, y_pred)[2].mean()
 
     sep_views_classifier.fit(X1, X2, y)
     y_pred = sep_views_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
-    sep_views_f1 = skl.metrics.f1_score(y_test, y_pred)
+    sep_views_f1 = score(y_test, y_pred)[2].mean()
 
     cotrain_classifier.fit(X1, X2, y)
     y_pred = cotrain_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
-    cotrain_f1 = skl.metrics.f1_score(y_test, y_pred)
+    cotrain_f1 = score(y_test, y_pred)[2].mean()
+
+    dist_aware_pred.fit(X1, X2, y)
+    y_pred = dist_aware_pred.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
+    dist_aware_pred_f1 = score(y_test, y_pred)[2].mean()
 
     disagreement = cotrain_disagreement(cotrain_classifier, X, squared_difference)
-    return (base_f1, sep_views_f1, cotrain_f1, disagreement)
+    print('base_f1', base_f1)
+    print('sep_views_f1', sep_views_f1)
+    print('cotrain_f1', cotrain_f1)
+    print('dist_aware_pred_f1', dist_aware_pred_f1)
+    return (base_f1, sep_views_f1, cotrain_f1, dist_aware_pred_f1, disagreement)
 
 
 def main():
@@ -116,42 +126,46 @@ def main():
     # number of informative and redundant features
     N_INFORMATIVE = N_FEATURES // 100
     NUM_RANDOM_STATES = 3
-    random_states = [i for i in range(3)]
+    random_states = [i for i in range(NUM_RANDOM_STATES)]
 
     #probs_replace = np.linspace(0., 0.7, 30)
-    probs_replace = np.linspace(0.99, 0.999, 1)
+    probs_replace = np.linspace(0.1,0.3, 10)
     progress = tqdm.tqdm(total=len(probs_replace) * NUM_RANDOM_STATES)
     disagreements = []
     base_f1s = []
     sep_views_f1s = []
     cotrain_f1s = []
+    dist_aware_pred_f1s = []
     for prob_replace in probs_replace:
         disagreements.append(0)
         base_f1s.append(0)
         sep_views_f1s.append(0)
         cotrain_f1s.append(0)
+        dist_aware_pred_f1s.append(0)
         for random_state in random_states:
-            (base_f1, sep_views_f1, cotrain_f1, disagreement) = report_disagreement_and_f1(
+            (base_f1, sep_views_f1, cotrain_f1, dist_aware_pred_f1, disagreement) = report_disagreement_and_f1(
                 LogisticRegression(max_iter=1000, random_state=random_state),
                 N_SAMPLES,
                 N_FEATURES,
                 N_INFORMATIVE,
-                n_classes=2,
-                f=functools.partial(set_prob_replace_fn, non_diagonal_ratio=prob_replace),
+                n_classes=3,
+                f=functools.partial(third_class_on_dis, p_diag=prob_replace),
                 random_state=random_state,
             )
             disagreements[-1] += disagreement / NUM_RANDOM_STATES
             base_f1s[-1] += base_f1 / NUM_RANDOM_STATES
             sep_views_f1s[-1] += sep_views_f1 / NUM_RANDOM_STATES
             cotrain_f1s[-1] += cotrain_f1 / NUM_RANDOM_STATES
+            dist_aware_pred_f1s[-1] += dist_aware_pred_f1 / NUM_RANDOM_STATES
             progress.update(1)
 
-    plt.xlabel("Disagreement")
+    plt.xlabel("Agreement")
     plt.ylabel("F1")
     disagreements =probs_replace
     plt.scatter(disagreements, base_f1s, label="Base F1")
     plt.scatter(disagreements, sep_views_f1s, label="Separate Views F1")
     plt.scatter(disagreements, cotrain_f1s, label="CoTrain F1")
+    plt.scatter(disagreements, dist_aware_pred_f1s, label="Dist Aware Pred F1")
     plt.legend()
     plt.show()
 

@@ -182,6 +182,36 @@ def fn_to_mat(f: Callable[[int, int, int, int], float], n_classes: int):
 def identity_fn(i: int, j: int, k: int, n_classes: int):
     return 1 / n_classes if i == j == k else 0
 
+def biased_fn(i: int, j: int, k: int, n_classes: int):
+    assert n_classes == 2
+    if i == j == k == 0:
+        return 0.8
+    if i == j == k == 1:
+        return 0.1
+    if i == j == 0 and k == 1:
+        return 0.1
+    return 0
+
+def dom_class(i: int, j: int, k: int, n_classes: int, p_100):
+    assert p_100 - 0.2 < 0.0001
+    assert n_classes == 2
+    if i == j == k:
+        return 0.4
+    if i == 1 and j == k == 0:
+        return p_100
+    if i == 1 and j == 0 and k == 1:
+        return 0.2 - p_100
+    return 0
+
+def third_class_on_dis(i: int, j: int, k: int, n_classes: int, p_diag):
+    assert n_classes == 3
+    assert p_diag - 1/n_classes < 0.0001
+    if i == j == k:
+        return p_diag
+    if ((i, j, k) == (0, 1, 2)) or ((i, j, k) == (1, 0, 2)) :
+        return (1 - p_diag * 3) / 2
+    return 0
+
 def set_prob_replace_fn(i: int, j: int, k: int, n_classes, non_diagonal_ratio: float):
     non_diagonal = n_classes ** 2 - n_classes
     if i == j == k:
@@ -191,7 +221,7 @@ def set_prob_replace_fn(i: int, j: int, k: int, n_classes, non_diagonal_ratio: f
     return 0
 
 def make_classification(
-    prob_tensor: np.ndarray=fn_to_mat(identity_fn, 2),
+    prob_tensor: np.ndarray,
     n_samples=100,
     n_features=20,
     *,
