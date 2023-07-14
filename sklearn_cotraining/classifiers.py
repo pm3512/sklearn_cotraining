@@ -4,7 +4,7 @@ import copy
 
 from sklearn.base import BaseEstimator
 
-from utils import compute_conditionals, compute_posteriors, supports_proba
+from utils import compute_conditionals, compute_conditionals_one_view, compute_conditionals_view_to_view, compute_posteriors, compute_prob_one_view, supports_proba, compute_posteriors_one_view
 class CoTrainingClassifier(object):
 	"""
 	Parameters:
@@ -412,3 +412,145 @@ class DistributionAwarePred(object):
 
 		print('Fraction flipped: ', num_flipped / X1.shape[0])
 		return y_pred
+
+class DistributionAwareTrain(DistributionAwarePred):
+	"""
+	Parameters:
+	clf - The classifier that will be used in the cotraining algorithm on the X1 feature set
+		(Note a copy of clf will be used on the X2 feature set if clf2 is not specified).
+
+	prob_tensor: 3D tensor of shape (n_classes, n_classes, n_classes), which gives the
+	distribution of sample classes
+
+	clf2 - (Optional) A different classifier type can be specified to be used on the X2 feature set
+		 if desired.
+
+	k - (Optional) The number of iterations
+		The default is 30 (from paper)
+
+	u - (Optional) The size of the pool of unlabeled samples from which the classifier can choose
+		Default - 75 (from paper)
+	"""
+
+	def __init__(self, prob_tensor: np.ndarray, clf, clf2, p, n, k, u, num_classes):
+		super().__init__(prob_tensor, clf, clf2, p, n, k, u, num_classes)
+		self.one_view_conds = [compute_conditionals_view_to_view(prob_tensor, view) for view in [0, 1]]
+		self.prob_tensor = prob_tensor
+		self.one_view_probs = [compute_prob_one_view(prob_tensor, view) for view in [0, 1]]
+		print('one view probs: ', self.one_view_probs)
+
+
+ 
+	def fit(self, X1, X2, y1, y2):
+		"""
+		Description:
+		fits the classifiers on the partially labeled data, y.
+
+		Parameters:
+		X1 - array-like (n_samples, n_features_1): first set of features for samples
+		X2 - array-like (n_samples, n_features_2): second set of features for samples
+		y - array-like (n_samples): labels for samples, -1 indicates unlabeled
+
+		"""
+
+		#we need y to be a numpy array so we can do more complex slicing
+		y1 = np.array(y1)
+		y2 = np.array(y2)
+
+		#set the n and p parameters if we need to
+
+		#the set of unlabeled samples
+		U1 = [i for i, y_i in enumerate(y1) if y_i == -1]
+		U2 = [i for i, y_i in enumerate(y2) if y_i == -1]
+
+		#we randomize here, and then just take from the back so we don't have to sample every time
+		random.shuffle(U1)
+		random.shuffle(U2)
+
+		#this is U' in paper
+		U1_ = U1[-min(len(U1), self.u_):]
+		U2_ = U2[-min(len(U2), self.u_):]
+
+		#the samples that are initially labeled
+		L1 = [i for i, y_i in enumerate(y1) if y_i != -1]
+		L2 = [i for i, y_i in enumerate(y2) if y_i != -1]
+
+		#remove the samples in U_ from U
+		U1 = U1[:-len(U1_)]
+		U2 = U2[:-len(U2_)]
+
+
+		it = 0 #number of cotraining iterations we've done so far
+
+		#loop until we have assigned labels to everything in U or we hit our iteration break condition
+		while it != self.k_ and U1 and U2:
+			it += 1
+
+			self.clf1_.fit(X1[L1], y1[L1])
+			self.clf2_.fit(X2[L2], y2[L2])
+
+			y1_prob = self.clf1_.predict_proba(X1[U1_])
+			y2_prob = self.clf2_.predict_proba(X2[U2_])
+
+			y_pred_from_y2 = np.zeros(y1_prob.shape)
+			y_pred_from_y1 = np.zeros(y2_prob.shape)
+			for i in range(len(y1_prob)):
+				y_pred_from_y1[i] = compute_posteriors_one_view(self.one_view_conds[1], y1_prob[i])
+				y_pred_from_y2[i] = compute_posteriors_one_view(self.one_view_conds[0], y2_prob[i])
+			logits_avg_1 = y_pred_from_y1.mean(axis=0)
+			logits_avg_2 = y_pred_from_y2.mean(axis=0)
+			for i in range(len(y1_prob)):
+				y_pred_from_y1[i] *= (self.one_view_probs[0] / logits_avg_1)
+				y_pred_from_y2[i] *= (self.one_view_probs[1] / logits_avg_2)
+			print('mean logits', y_pred_from_y1.mean(axis=0), y_pred_from_y2.mean(axis=0))
+
+			num_flipped = 0
+			new_labels_1 = {i: set() for i in range(self.num_classes_)}
+			new_labels_2 = {i: set() for i in range(self.num_classes_)}
+			n_select = (self.n_ + self.p_)
+			for cl in range(self.num_classes_):
+				for j in (y_pred_from_y1[:,cl].argsort()[-int(self.one_view_probs[0][cl] * n_select):]):
+					logits = y_pred_from_y1[j]
+					#pred_class = np.random.choice(self.num_classes_, p=logits)
+					pred_class = logits.argmax()
+					if pred_class != y1_prob[j].argmax():
+						num_flipped += 1
+					new_labels_2[pred_class].add(j)
+				for j in (y_pred_from_y2[:,cl].argsort()[-int(self.one_view_probs[1][cl] * n_select):]):
+					logits = y_pred_from_y2[j]
+					#pred_class = np.random.choice(self.num_classes_, p=logits)
+					pred_class = logits.argmax()
+					if pred_class != y2_prob[j].argmax():
+						num_flipped += 1
+					new_labels_1[pred_class].add(j)
+			print('view 1')
+			for k, v in new_labels_1.items():
+				print('class', k, 'count', len(v))
+			print('view 2')
+			for k, v in new_labels_2.items():
+				print('class', k, 'count', len(v))
+			
+			for i in range(self.num_classes_):
+				y1[[U1_[x] for x in new_labels_1[i]]] = i
+				y2[[U2_[x] for x in new_labels_2[i]]] = i
+				L1.extend([U1_[x] for x in new_labels_1[i]])
+				L2.extend([U2_[x] for x in new_labels_2[i]])
+			new_labels_all = set()
+			for i in range(self.num_classes_):
+				new_labels_all.update(new_labels_1[i])
+				new_labels_all.update(new_labels_2[i])
+			U1_ = [elem for j, elem in enumerate(U1_) if not (j in new_labels_all)]				
+			U2_ = [elem for j, elem in enumerate(U2_) if not (j in new_labels_all)]
+
+			num_to_add = len(new_labels_all)
+			num_to_add = min(num_to_add, len(U1), len(U2))
+			U1_.extend(U1[-num_to_add:])
+			U2_.extend(U2[-num_to_add:])
+			U1 = U1[:-num_to_add]
+			U2 = U2[:-num_to_add]
+			print('Training fraction flipped: ', num_flipped / (self.n_ + self.p_))
+
+
+		#let's fit our final model
+		self.clf1_.fit(X1[L1], y1[L1])
+		self.clf2_.fit(X2[L2], y2[L2])

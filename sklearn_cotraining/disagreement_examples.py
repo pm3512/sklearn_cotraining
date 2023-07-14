@@ -3,9 +3,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report
-from classifiers import CoTrainingClassifier, DistributionAwarePred, SeparateViewsClassifier
+from classifiers import CoTrainingClassifier, DistributionAwarePred, SeparateViewsClassifier, DistributionAwareTrain
 from disagreement import cotrain_disagreement, kl_divergence, squared_difference
-from data_utils import DataGenerationType, dom_class, generate_data, generate_from_probmatrix, fn_to_mat, identity_fn
+from data_utils import DataGenerationType, dom_class, generate_data, generate_from_probmatrix, fn_to_mat, identity_fn, third_class_on_dis
 import numpy as np
 from matplotlib import pyplot as plt
 
@@ -14,9 +14,9 @@ if __name__ == '__main__':
     N_SAMPLES = 25000
     N_FEATURES = 1000
     # number of informative and redundant features
-    num_classes = 2
+    num_classes = 3
     N_INFORMATIVE = N_FEATURES // 100
-    generator_tensor = fn_to_mat(functools.partial(dom_class, p_100=0.05), num_classes)
+    generator_tensor = fn_to_mat(functools.partial(third_class_on_dis, p_diag=0.1,),n_classes=num_classes)
 
     X, y = generate_from_probmatrix(
         generator_tensor,
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     X1 = X[:,:N_FEATURES // 2]
     X2 = X[:, N_FEATURES // 2:]
 
-    print('Logistic')
+    '''    print('Logistic')
     base_lr = LogisticRegression(max_iter=1000)
     base_lr.fit(X_labeled, y_labeled)
     y_pred = base_lr.predict(X_test)
@@ -59,21 +59,29 @@ if __name__ == '__main__':
 
     print ('Logistic Separate View')
     sep_view = SeparateViewsClassifier(LogisticRegression(max_iter=1000))
-    sep_view.fit(X1, X2, y)
+    sep_view.fit(X1.copy(), X2.copy(), y.copy())
     y_pred = sep_view.predict(X_test[:, :N_FEATURES // 2], X_test[:, N_FEATURES // 2:])
     print (classification_report(y_test, y_pred))
     print('Disagreement: ', cotrain_disagreement(sep_view, X, squared_difference))
 
     print ('Logistic CoTraining')
     lg_co_clf = CoTrainingClassifier(LogisticRegression(max_iter=1000), u=1000, p=200, n=200, num_classes=num_classes)
-    lg_co_clf.fit(X1, X2, y)
+    lg_co_clf.fit(X1.copy(), X2.copy(), y.copy())
     y_pred = lg_co_clf.predict(X_test[:, :N_FEATURES // 2], X_test[:, N_FEATURES // 2:])
     print (classification_report(y_test, y_pred))
     print('Disagreement: ', cotrain_disagreement(lg_co_clf, X, squared_difference))
 
     print ('Logistic distribution aware prediction')
     dist_aware = DistributionAwarePred(prob_tensor=generator_tensor, clf=LogisticRegression(max_iter=1000), clf2=None, u=1000, p=200, n=200, k=40, num_classes=num_classes)
-    dist_aware.fit(X1, X2, y)
+    dist_aware.fit(X1.copy(), X2.copy(), y.copy())
     y_pred = dist_aware.predict(X_test[:, :N_FEATURES // 2], X_test[:, N_FEATURES // 2:])
     print (classification_report(y_test, y_pred))
     print('Disagreement: ', cotrain_disagreement(dist_aware, X, squared_difference))
+    '''
+
+    print ('Logistic distribution aware training + prediction')
+    dist_aware_train = DistributionAwareTrain(prob_tensor=generator_tensor, clf=LogisticRegression(max_iter=1000), clf2=None, u=1000, p=200, n=200, k=40, num_classes=num_classes)
+    dist_aware_train.fit(X1.copy(), X2.copy(), y.copy())
+    y_pred = dist_aware_train.predict(X_test[:, :N_FEATURES // 2], X_test[:, N_FEATURES // 2:])
+    print (classification_report(y_test, y_pred))
+    print('Disagreement: ', cotrain_disagreement(dist_aware_train, X, squared_difference))

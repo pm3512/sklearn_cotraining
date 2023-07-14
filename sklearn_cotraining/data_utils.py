@@ -139,6 +139,7 @@ def generate_from_probmatrix(
     n_features: int,
     n_informative: int,
     random_state: int | None=None,
+    two_labels: bool=False,
 ):
     n_classes = mat.shape[0]
     if len(mat.shape) < 3 or mat.shape[1] != n_classes or mat.shape[2] != n_classes:
@@ -148,7 +149,7 @@ def generate_from_probmatrix(
         raise ValueError("Not a valid probability tensor")
 
     np.random.seed(random_state)
-    X, y = make_classification(
+    data = make_classification(
         prob_tensor=mat,
         n_samples=n_samples,
         n_classes=n_classes,
@@ -157,16 +158,28 @@ def generate_from_probmatrix(
         n_informative=n_informative,
         n_redundant=n_informative,
         shuffle=False,
+        two_labels=two_labels,
     )
+    if two_labels:
+        (X, y, y1, y2) = data
+    else:
+        (X, y) = data
     X1, X2 = rearrange_cols(X, n_informative, n_informative)
     perm = np.random.permutation(n_samples)
     X1 = X1[perm]
     X2 = X2[perm]
     y = y[perm]
+    if two_labels:
+        y1 = y1[perm]
+        y2 = y2[perm]
+        y1[:n_samples//2] = -1
+        y2[:n_samples//2] = -1
 
     X = np.concatenate([X1, X2], axis=1)
 
     y[:n_samples//2] = -1
+    if two_labels:
+        return X, y, y1, y2
     return X, y
 
 def fn_to_mat(f: Callable[[int, int, int, int], float], n_classes: int):
@@ -220,6 +233,30 @@ def set_prob_replace_fn(i: int, j: int, k: int, n_classes, non_diagonal_ratio: f
         return non_diagonal_ratio / non_diagonal / 2
     return 0
 
+def random_2class(probs_diag):
+    n_nondiag = 6
+    probs_nondiag = np.random.random(n_nondiag)
+    probs_nondiag /= probs_nondiag.sum()
+    probs_nondiag *= (1 - probs_diag)
+    l = 0
+    mat = np.zeros((2, 2, 2))
+    mat[0, 0, 0] = probs_diag / 2
+    mat[1, 1, 1] = probs_diag / 2
+    for i in range(2):
+        for j in range(2):
+            for k in range(2):
+                if i == j == k:
+                    continue
+                mat[i, j, k] = probs_nondiag[l]
+                l += 1
+    for i in range(2):
+        for j in range(2):
+            for k in range(2):
+                print(i, j, k, '   ', mat[i, j, k])
+    print('sum', mat.sum())
+    
+    return mat
+
 def make_classification(
     prob_tensor: np.ndarray,
     n_samples=100,
@@ -238,6 +275,7 @@ def make_classification(
     scale=1.0,
     shuffle=True,
     random_state=None,
+    two_labels=False,
 ):
     """Generate a random n-class classification problem.
 
@@ -403,6 +441,8 @@ def make_classification(
     # Initialize X and y
     X = np.zeros((n_samples, n_features))
     y = np.zeros(n_samples, dtype=int)
+    X1_labels = np.zeros(n_samples, dtype=int)
+    X2_labels = np.zeros(n_samples, dtype=int)
 
     # Build the polytope whose vertices become cluster centroids
     centroids = _generate_hypercube(n_clusters, n_informative, generator).astype(
@@ -433,6 +473,8 @@ def make_classification(
         X_k[:, :n_informative // 2] += centroids[X1_class, :n_informative // 2]
         X_k[:, n_informative // 2: n_informative] += centroids[X2_class, n_informative // 2:n_informative]
         y[i] = y_class
+        X1_labels[i] = X1_class
+        X2_labels[i] = X2_class
 
     # Create redundant features
     if n_redundant > 0:
@@ -474,6 +516,8 @@ def make_classification(
         generator.shuffle(indices)
         X[:, :] = X[:, indices]
 
+    if two_labels:
+        return X, y, X1_labels, X2_labels
     return X, y
 
 def _generate_hypercube(samples, dimensions, rng):
