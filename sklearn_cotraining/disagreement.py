@@ -12,6 +12,8 @@ from data_utils import dom_class, fn_to_mat, generate_data, DataGenerationType, 
 import tqdm
 from matplotlib import pyplot as plt
 
+from sklearn_cotraining.utils import calc_accuracy
+
 def calc_disagreement(y1: pd.Series, y2: pd.Series, d: Callable[[float, float], float]) -> float:
     if len(y1) != len(y2):
         raise ValueError("Label series lengths do not match")
@@ -69,7 +71,7 @@ def report_disagreement_and_f1(
     dist_aware_pred = DistributionAwarePred(prob_tensor, clone(classifier), None, p=200, n=200, u=1000, k=40, num_classes=n_classes)
     dist_aware = DistributionAwareTrain(prob_tensor, clone(classifier), None, p=200, n=200, u=1000, k=40, num_classes=n_classes)
 
-    X, y, y1, y2 = generate_from_probmatrix(
+    X, y, y1, y2, y_true, y1_true, y2_true = generate_from_probmatrix(
         prob_tensor,
         n_samples,
         n_features,
@@ -88,9 +90,20 @@ def report_disagreement_and_f1(
         gen_type=gen_type
     )
     '''
+    print('----------------')
+    num_corr = 0
+    for i in range(len(y_true)):
+        if y_true[i] == y1_true[i] and y_true[i] == y2_true[i]:
+            num_corr += 1
+        elif y1_true[i] != y2_true[i]:
+            num_corr += 0.5
+    print('best possible acc', num_corr / len(y_true))
+    print('----------------')
 
     X_test = X[-n_samples//4:]
     y_test = y[-n_samples//4:]
+    y1_test = y1_true[-n_samples//4:]
+    y2_test = y2_true[-n_samples//4:]
 
     X_labeled = X[n_samples//2:-n_samples//4]
     y_labeled = y[n_samples//2:-n_samples//4]
@@ -105,13 +118,14 @@ def report_disagreement_and_f1(
 
     base_classifier.fit(X_labeled, y_labeled)
     y_pred = base_classifier.predict(X_test)
+    base_acc = calc_accuracy(base_classifier, X_test)
     base_f1 = score(y_test, y_pred)[2].mean()
 
     sep_views_classifier.fit(X1.copy(), X2.copy(), y.copy())
     y_pred = sep_views_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
     sep_views_f1 = score(y_test, y_pred)[2].mean()
 
-    cotrain_classifier.fit(X1.copy(), X2.copy(), y.copy())
+    cotrain_classifier.fit(X1.copy(), X2.copy(), y.copy(), y1_true.copy(), y2_true.copy(), y_true.copy())
     y_pred = cotrain_classifier.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
     cotrain_f1 = score(y_test, y_pred)[2].mean()
 
@@ -119,7 +133,7 @@ def report_disagreement_and_f1(
     y_pred = dist_aware_pred.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
     dist_aware_pred_f1 = score(y_test, y_pred)[2].mean()
 
-    dist_aware.fit(X1.copy(), X2.copy(), y1.copy(), y2.copy())
+    dist_aware.fit(X1.copy(), X2.copy(), y1.copy(), y2.copy(), y1_true.copy(), y2_true.copy(), y_true.copy())
     y_pred = dist_aware.predict(X_test[:, :n_features // 2], X_test[:, n_features // 2:])
     dist_aware_f1 = score(y_test, y_pred)[2].mean()
 
@@ -137,11 +151,11 @@ def main():
     N_FEATURES = 1000
     # number of informative and redundant features
     N_INFORMATIVE = N_FEATURES // 100
-    NUM_RANDOM_STATES = 3
+    NUM_RANDOM_STATES = 5
     random_states = [i for i in range(NUM_RANDOM_STATES)]
 
     #probs_replace = np.linspace(0., 0.7, 30)
-    probs_replace = np.linspace(0.5, 1., 10)
+    probs_replace = np.linspace(0.3, 1., 30)
     progress = tqdm.tqdm(total=len(probs_replace) * NUM_RANDOM_STATES)
     disagreements = []
     base_f1s = []

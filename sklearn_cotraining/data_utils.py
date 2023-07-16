@@ -169,9 +169,12 @@ def generate_from_probmatrix(
     X1 = X1[perm]
     X2 = X2[perm]
     y = y[perm]
+    y_true = y.copy()
     if two_labels:
         y1 = y1[perm]
         y2 = y2[perm]
+        y1_true = y1.copy()
+        y2_true = y2.copy()
         y1[:n_samples//2] = -1
         y2[:n_samples//2] = -1
 
@@ -179,7 +182,7 @@ def generate_from_probmatrix(
 
     y[:n_samples//2] = -1
     if two_labels:
-        return X, y, y1, y2
+        return X, y, y1, y2, y_true, y1_true, y2_true
     return X, y
 
 def fn_to_mat(f: Callable[[int, int, int, int], float], n_classes: int):

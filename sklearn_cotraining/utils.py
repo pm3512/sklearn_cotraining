@@ -49,6 +49,15 @@ def compute_posteriors_one_view(cond_tensor: np.ndarray, preds: np.ndarray):
 
     return np.dot(cond_tensor, preds) 
 
+def calc_accuracy(model, X_test, y1, y2):
+    X1 = X_test[:, :n_features // 2]
+    X2 = X_test[:, n_features // 2:]
+    y1_pred = model.clf1_.predict(X1)
+    y2_pred = model.clf2_.predict(X2)
+    acc1 = np.mean(y1_pred == y1)
+    acc2 = np.mean(y2_pred == y2)
+    return (acc1 + acc2) / 2
+
 if __name__ == '__main__':
     conds = compute_conditionals_one_view(np.array(
         [[[0.05, 0.06], [0.07, 0.08]], [[0.09, 0.1], [0.11, 0.44]]]

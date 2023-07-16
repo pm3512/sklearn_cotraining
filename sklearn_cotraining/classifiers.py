@@ -49,7 +49,7 @@ class CoTrainingClassifier(object):
 		random.seed()
 
 
-	def fit(self, X1, X2, y):
+	def fit(self, X1, X2, y, y1_true, y2_true, y_true):
 		"""
 		Description:
 		fits the classifiers on the partially labeled data, y.
@@ -85,7 +85,7 @@ class CoTrainingClassifier(object):
 		U = [i for i, y_i in enumerate(y) if y_i == -1]
 
 		#we randomize here, and then just take from the back so we don't have to sample every time
-		random.shuffle(U)
+		random.Random(1).shuffle(U)
 
 		#this is U' in paper
 		U_ = U[-min(len(U), self.u_):]
@@ -109,28 +109,37 @@ class CoTrainingClassifier(object):
 			y1_prob = self.clf1_.predict_proba(X1[U_])
 			y2_prob = self.clf2_.predict_proba(X2[U_])
 
-			n, p = [], []
+			n1, p1 = [], []
+			n2, p2 = [], []
 
 			if self.num_classes_ == 2:
 				for i in (y1_prob[:,0].argsort())[-self.n_:]:
-					if y1_prob[i,0] > 0.5:
-						n.append(i)
+					#if y1_prob[i,0] > 0.5:
+					n2.append(i)
 				for i in (y1_prob[:,1].argsort())[-self.p_:]:
-					if y1_prob[i,1] > 0.5:
-						p.append(i)
+					#if y1_prob[i,1] > 0.5:
+					p2.append(i)
 
 				for i in (y2_prob[:,0].argsort())[-self.n_:]:
-					if y2_prob[i,0] > 0.5:
-						n.append(i)
+					#if y2_prob[i,0] > 0.5:
+					n1.append(i)
 				for i in (y2_prob[:,1].argsort())[-self.p_:]:
-					if y2_prob[i,1] > 0.5:
-						p.append(i)
-				p = set(p)
-				n = set(n)
+					#if y2_prob[i,1] > 0.5:
+					p1.append(i)
+				p = set(p1 + p2)
+				n = set(n1 + n2)
 
 				#label the samples and remove thes newly added samples from U_
 				y[[U_[x] for x in p]] = 1
 				y[[U_[x] for x in n]] = 0
+				y_pred = np.concatenate((y[[U_[x] for x in p]], y[[U_[x] for x in n]]))
+				y_true_sub = np.concatenate((y_true[[U_[x] for x in p]], y_true[[U_[x] for x in n]]))
+				print('cotrain iteration %d: y1+y2->y_true acc %f' % (it, (y_pred == y_true_sub).mean()))
+				y1_pred = np.concatenate([y[[U_[x] for x in p1]], y[[U_[x] for x in n1]]])
+				y1_true_sub = np.concatenate((y1_true[[U_[x] for x in p1]], y1_true[[U_[x] for x in n1]]))
+				y2_pred = np.concatenate([y[[U_[x] for x in p2]], y[[U_[x] for x in n2]]])
+				y2_true_sub = np.concatenate((y2_true[[U_[x] for x in p2]], y2_true[[U_[x] for x in n2]]))
+				print('y1->y2 acc %f, y2->y1 acc %f' % ((y2_pred == y2_true_sub).mean(), (y1_pred == y1_true_sub).mean()))
 
 				L.extend([U_[x] for x in p])
 				L.extend([U_[x] for x in n])
@@ -441,7 +450,7 @@ class DistributionAwareTrain(DistributionAwarePred):
 
 
  
-	def fit(self, X1, X2, y1, y2):
+	def fit(self, X1, X2, y1, y2, y1_true: np.ndarray, y2_true: np.ndarray, y_true: np.ndarray):
 		"""
 		Description:
 		fits the classifiers on the partially labeled data, y.
@@ -464,8 +473,8 @@ class DistributionAwareTrain(DistributionAwarePred):
 		U2 = [i for i, y_i in enumerate(y2) if y_i == -1]
 
 		#we randomize here, and then just take from the back so we don't have to sample every time
-		random.shuffle(U1)
-		random.shuffle(U2)
+		random.Random(1).shuffle(U1)
+		random.Random(1).shuffle(U2)
 
 		#this is U' in paper
 		U1_ = U1[-min(len(U1), self.u_):]
@@ -499,9 +508,11 @@ class DistributionAwareTrain(DistributionAwarePred):
 				y_pred_from_y2[i] = compute_posteriors_one_view(self.one_view_conds[0], y2_prob[i])
 			logits_avg_1 = y_pred_from_y1.mean(axis=0)
 			logits_avg_2 = y_pred_from_y2.mean(axis=0)
+			'''
 			for i in range(len(y1_prob)):
 				y_pred_from_y1[i] *= (self.one_view_probs[0] / logits_avg_1)
 				y_pred_from_y2[i] *= (self.one_view_probs[1] / logits_avg_2)
+			'''
 			print('mean logits', y_pred_from_y1.mean(axis=0), y_pred_from_y2.mean(axis=0))
 
 			num_flipped = 0
@@ -523,18 +534,29 @@ class DistributionAwareTrain(DistributionAwarePred):
 					if pred_class != y2_prob[j].argmax():
 						num_flipped += 1
 					new_labels_1[pred_class].add(j)
+			'''
 			print('view 1')
 			for k, v in new_labels_1.items():
 				print('class', k, 'count', len(v))
 			print('view 2')
 			for k, v in new_labels_2.items():
 				print('class', k, 'count', len(v))
+			'''
 			
+			changed_indices_1 = []
+			changed_indices_2 = []
 			for i in range(self.num_classes_):
 				y1[[U1_[x] for x in new_labels_1[i]]] = i
+				changed_indices_1.extend(new_labels_1[i])
 				y2[[U2_[x] for x in new_labels_2[i]]] = i
+				changed_indices_2.extend(new_labels_2[i])
 				L1.extend([U1_[x] for x in new_labels_1[i]])
 				L2.extend([U2_[x] for x in new_labels_2[i]])
+			changed_indices_expanded_1 = [U1_[x] for x in changed_indices_1]
+			changed_indices_expanded_2 = [U2_[x] for x in changed_indices_2]
+			print('dist aware iter', it, 'accuracy y2->y1', (y1[changed_indices_expanded_1] == y1_true[changed_indices_expanded_1]).mean(), 'accuracy y1->y2', (y2[changed_indices_expanded_2] == y2_true[changed_indices_expanded_2]).mean())
+			print('view 1 accuracy y1+y2->y_true', (((y_pred_from_y1[changed_indices_2] + y1_prob[changed_indices_2]) / 2).argmax(axis=1) == y_true[changed_indices_expanded_2]).mean())
+			print('view 2 accuracy y1+y2->y_true', (((y_pred_from_y2[changed_indices_1] + y2_prob[changed_indices_1]) / 2).argmax(axis=1) == y_true[changed_indices_expanded_1]).mean())
 			new_labels_all = set()
 			for i in range(self.num_classes_):
 				new_labels_all.update(new_labels_1[i])
@@ -554,3 +576,48 @@ class DistributionAwareTrain(DistributionAwarePred):
 		#let's fit our final model
 		self.clf1_.fit(X1[L1], y1[L1])
 		self.clf2_.fit(X2[L2], y2[L2])
+
+	def predict(self, X1, X2):
+		"""
+		Predict the classes of the samples represented by the features in X1 and X2.
+
+		Parameters:
+		X1 - array-like (n_samples, n_features1)
+		X2 - array-like (n_samples, n_features2)
+
+
+		Output:
+		y - array-like (n_samples)
+			These are the predicted classes of each of the samples.  If the two classifiers, don't agree, we try
+			to use predict_proba and take the classifier with the highest confidence and if predict_proba is not implemented, then we randomly
+			assign either 0 or 1.  We hope to improve this in future releases.
+
+		"""
+
+		y1 = self.clf1_.predict(X1)
+		y2 = self.clf2_.predict(X2)
+
+		proba_supported = supports_proba(self.clf1_) and supports_proba(self.clf2_)
+
+		#fill y_pred with -1 so we can identify the samples in which the classifiers failed to agree
+		y_pred = np.asarray([-1] * X1.shape[0])
+
+		for i, (y1_i, y2_i) in enumerate(zip(y1, y2)):
+			if y1_i == y2_i:
+				y_pred[i] = y1_i
+			elif proba_supported:
+				y1_probs = np.array(self.clf1_.predict_proba([X1[i]])[0])
+				y2_probs = np.array(self.clf2_.predict_proba([X2[i]])[0])
+				sum_probs = y1_probs + y2_probs
+				pred = sum_probs.argmax()
+				y_pred[i] = pred
+
+			else:
+				#the classifiers disagree and don't support probability, so we guess
+				y_pred[i] = random.randint(0, 1)
+
+
+		#check that we did everything right
+		assert not (-1 in y_pred)
+
+		return y_pred
